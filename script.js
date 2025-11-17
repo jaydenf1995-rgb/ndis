@@ -63,19 +63,70 @@ let currentFilters = {
     sortBy: 'newest'
 };
 
+// Test API connection
+async function testAPI() {
+    try {
+        const response = await fetch('/api/search');
+        if (!response.ok) {
+            throw new Error(`API responded with status: ${response.status}`);
+        }
+        const data = await response.json();
+        return Array.isArray(data) ? data : [];
+    } catch (error) {
+        console.error('API test failed:', error);
+        // If API fails, check if we have services in localStorage as fallback
+        const localServices = JSON.parse(localStorage.getItem('ndisServices') || '[]');
+        return localServices;
+    }
+}
+
 // Initialize statistics
 async function initializeStatistics() {
     try {
-        const res = await fetch('/api/search');
-        const services = await res.json();
+        const services = await testAPI();
 
-        // Count unique locations
-        const locations = new Set(services.map(s => s.location?.toLowerCase().trim()).filter(Boolean));
+        if (services && services.length > 0) {
+            // Count unique locations (suburbs)
+            const locations = new Set();
+            services.forEach(service => {
+                if (service.location) {
+                    const cleanLocation = service.location.trim().toLowerCase();
+                    if (cleanLocation) {
+                        locations.add(cleanLocation);
+                    }
+                }
+            });
 
-        document.getElementById('totalServices').textContent = services.length;
-        document.getElementById('totalLocations').textContent = locations.size;
+            // Update the statistics display
+            const totalServicesElement = document.getElementById('totalServices');
+            const totalLocationsElement = document.getElementById('totalLocations');
+            
+            if (totalServicesElement) {
+                totalServicesElement.textContent = services.length;
+            }
+            
+            if (totalLocationsElement) {
+                totalLocationsElement.textContent = locations.size;
+            }
+
+            console.log(`Statistics updated: ${services.length} services, ${locations.size} locations`);
+        } else {
+            console.log('No services found for statistics');
+            // Show placeholder if no services
+            const totalServicesElement = document.getElementById('totalServices');
+            const totalLocationsElement = document.getElementById('totalLocations');
+            
+            if (totalServicesElement) totalServicesElement.textContent = '0';
+            if (totalLocationsElement) totalLocationsElement.textContent = '0';
+        }
     } catch (err) {
         console.error('Error loading statistics:', err);
+        // Fallback to showing zeros
+        const totalServicesElement = document.getElementById('totalServices');
+        const totalLocationsElement = document.getElementById('totalLocations');
+        
+        if (totalServicesElement) totalServicesElement.textContent = '0';
+        if (totalLocationsElement) totalLocationsElement.textContent = '0';
     }
 }
 
@@ -100,11 +151,20 @@ async function searchServices() {
         // Show skeleton loading for main search
         showSkeletonLoading(list);
 
-        let res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-        let services = await res.json();
+        let services = await testAPI();
 
         // Apply advanced filters
         services = applyAdvancedFilters(services);
+
+        // Filter by search query if provided
+        if (query) {
+            services = services.filter(service => 
+                (service.name && service.name.toLowerCase().includes(query)) ||
+                (service.location && service.location.toLowerCase().includes(query)) ||
+                (service.description && service.description.toLowerCase().includes(query)) ||
+                (service.category && service.category.some(cat => cat.toLowerCase().includes(query)))
+            );
+        }
 
         // Update results count
         if (resultsCount) resultsCount.textContent = services.length;
@@ -139,12 +199,13 @@ async function searchServices() {
     } catch (err) {
         console.error("Search error:", err);
         if (resultsCount) resultsCount.textContent = '0';
+        if (noResults) noResults.style.display = "block";
     } finally {
         if (loadingIndicator) loadingIndicator.style.display = 'none';
     }
 }
 
-// Load recent services (non-premium, limited to 2)
+// Load recent services (limited to 2)
 async function loadRecentServices() {
     try {
         const recentList = document.getElementById('recentServiceList');
@@ -152,11 +213,10 @@ async function loadRecentServices() {
         
         if (!recentList) return;
 
-        let res = await fetch('/api/search');
-        let services = await res.json();
+        let services = await testAPI();
 
-        // Sort by newest
-        services.sort((a, b) => b.id - a.id);
+        // Sort by newest (assuming higher ID = newer)
+        services.sort((a, b) => (b.id || 0) - (a.id || 0));
 
         recentList.innerHTML = "";
         
@@ -215,10 +275,10 @@ function createServiceCard(s) {
                 ${favoriteButton}
             </div>
             <p style="display: flex; align-items: center; gap: 5px;">
-                <span style="font-size: 1.2em;">📍</span> ${s.location}
+                <span style="font-size: 1.2em;">📍</span> ${s.location || 'Location not specified'}
             </p>
             <p style="background: var(--color-2); padding: 6px 12px; border-radius: 20px; font-size: 0.9em;">
-                ${(s.category || []).join(", ")}
+                ${(s.category || ['General Service']).join(", ")}
             </p>
             ${s.description ? `<p style="font-size: 0.9em; color: #666;">${s.description.substring(0, 100)}${s.description.length > 100 ? '...' : ''}</p>` : ''}
             ${s.averageRating > 0 ? `
@@ -257,10 +317,10 @@ function applyAdvancedFilters(services) {
     // Sort results
     switch (currentFilters.sortBy) {
         case 'newest':
-            filtered.sort((a, b) => b.id - a.id);
+            filtered.sort((a, b) => (b.id || 0) - (a.id || 0));
             break;
         case 'oldest':
-            filtered.sort((a, b) => a.id - b.id);
+            filtered.sort((a, b) => (a.id || 0) - (b.id || 0));
             break;
         case 'name':
             filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -442,6 +502,11 @@ function setupAddServiceForm() {
                     messageEl.textContent = result.message || "Service submitted for approval!";
                     messageEl.style.color = "green";
                     form.reset(); // Clear the form
+                    
+                    // Refresh statistics after adding new service
+                    setTimeout(() => {
+                        initializeStatistics();
+                    }, 1000);
                 } else {
                     messageEl.textContent = result.error || "Failed to submit service. Please try again.";
                     messageEl.style.color = "red";
@@ -525,6 +590,8 @@ function setupPendingServices() {
             const result = await res.json();
             alert(result.message || "Service approved!");
             loadPendingServices();
+            // Refresh statistics after approval
+            initializeStatistics();
         } catch (err) {
             console.error("Error approving service:", err);
             alert("Error approving service");
