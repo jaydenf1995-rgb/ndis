@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Browse All Services - NDIS Service Finder</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <h1>NDIS Service Finder</h1>
+                <p class="slogan">Help at your fingertips</p>
+            </div>
+            <nav>
+                <a href="index.html">Home</a>
+                <a href="browse.html">Browse Services</a>
+                <a href="add.html">Add a Service</a>
+                <a href="blog.html">News & Resources</a>
+                <a href="privacy.html">Privacy Policy</a>
+                <a href="login.html">Login</a>
+		<a href="#" id="logoutBtn" style="display: none;">Logout</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="browse-header">
+            <h1>Browse All Services</h1>
+            <p>Find NDIS service providers in your area</p>
+        </section>
+
+        <div class="search-section">
+            <input type="text" id="searchBox" placeholder="Search services by name or location...">
+        </div>
+
+        <section class="featured-services">
+            <div class="service-grid">
+                <div class="service-card">
+                    <div class="service-photo">📍</div>
+                    <div class="service-info">
+                        <h3><a href="service.html">Sample Support Service</a></h3>
+                        <p>📍 Sydney, NSW</p>
+                        <p>Support Worker • SIL Provider</p>
+                        <p>Experienced support worker offering personalized care and assistance.</p>
+                    </div>
+                </div>
+                
+                <div class="service-card">
+                    <div class="service-photo">📍</div>
+                    <div class="service-info">
+                        <h3><a href="service.html">Community Care Providers</a></h3>
+                        <p>📍 Melbourne, VIC</p>
+                        <p>Support Coordinator • Allied Health</p>
+                        <p>Comprehensive support coordination and allied health services.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 NDIS Service Finder. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Simple search functionality
+        document.getElementById('searchBox')?.addEventListener('input', function(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const services = document.querySelectorAll('.service-card');
+            
+            services.forEach(service => {
+                const text = service.textContent.toLowerCase();
+                if (text.includes(searchTerm)) {
+                    service.style.display = 'flex';
+                } else {
+                    service.style.display = 'none';
+                }
+            });
+        });
+    </script>
+</body>
+</html>
