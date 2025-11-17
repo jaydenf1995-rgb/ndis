@@ -1,6 +1,140 @@
 // User Management
 let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
 
+// User Registration and Login Functions
+function setupAuthForms() {
+    setupLoginForm();
+    setupRegisterForm();
+}
+
+function setupLoginForm() {
+    const loginForm = document.getElementById('loginForm');
+    if (!loginForm) return;
+
+    loginForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const messageEl = document.getElementById('loginMessage');
+        
+        // Simple validation
+        if (!email || !password) {
+            showMessage(messageEl, 'Please fill in all fields', 'error');
+            return;
+        }
+        
+        // Attempt login
+        const success = loginUser(email, password);
+        
+        if (success) {
+            showMessage(messageEl, 'Login successful! Redirecting...', 'success');
+            setTimeout(() => {
+                window.location.href = 'dashboard.html';
+            }, 1000);
+        } else {
+            showMessage(messageEl, 'Invalid email or password', 'error');
+        }
+    });
+}
+
+function setupRegisterForm() {
+    const registerForm = document.getElementById('registerForm');
+    if (!registerForm) return;
+
+    registerForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const name = document.getElementById('name').value;
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+        const messageEl = document.getElementById('registerMessage');
+        
+        // Validation
+        if (!name || !email || !password || !confirmPassword) {
+            showMessage(messageEl, 'Please fill in all fields', 'error');
+            return;
+        }
+        
+        if (password !== confirmPassword) {
+            showMessage(messageEl, 'Passwords do not match', 'error');
+            return;
+        }
+        
+        if (password.length < 6) {
+            showMessage(messageEl, 'Password must be at least 6 characters', 'error');
+            return;
+        }
+        
+        // Register user
+        const success = registerUser(name, email, password);
+        
+        if (success) {
+            showMessage(messageEl, 'Account created successfully! Redirecting to login...', 'success');
+            setTimeout(() => {
+                window.location.href = 'login.html';
+            }, 1500);
+        } else {
+            showMessage(messageEl, 'Email already exists', 'error');
+        }
+    });
+}
+
+function registerUser(name, email, password) {
+    // Get existing users or initialize empty array
+    const users = JSON.parse(localStorage.getItem('ndisUsers') || '[]');
+    
+    // Check if user already exists
+    const existingUser = users.find(user => user.email === email);
+    if (existingUser) {
+        return false;
+    }
+    
+    // Create new user
+    const newUser = {
+        id: Date.now(), // Simple ID generation
+        name: name,
+        email: email,
+        password: password, // Note: In real app, hash passwords!
+        createdAt: new Date().toISOString(),
+        services: [] // User's submitted services
+    };
+    
+    // Save user
+    users.push(newUser);
+    localStorage.setItem('ndisUsers', JSON.stringify(users));
+    
+    return true;
+}
+
+function loginUser(email, password) {
+    const users = JSON.parse(localStorage.getItem('ndisUsers') || '[]');
+    
+    // Find user
+    const user = users.find(u => u.email === email && u.password === password);
+    
+    if (user) {
+        // Set current user (without password)
+        const { password: _, ...userWithoutPassword } = user;
+        localStorage.setItem('currentUser', JSON.stringify(userWithoutPassword));
+        currentUser = userWithoutPassword;
+        return true;
+    }
+    
+    return false;
+}
+
+function showMessage(element, message, type) {
+    if (!element) return;
+    
+    element.textContent = message;
+    element.style.color = type === 'success' ? 'green' : 'red';
+    element.style.padding = '10px';
+    element.style.borderRadius = '4px';
+    element.style.backgroundColor = type === 'success' ? '#f0fff0' : '#fff0f0';
+}
+
 // Favorites System
 function setupFavorites() {
     if (!localStorage.getItem('favorites')) {
@@ -674,6 +808,7 @@ document.addEventListener("DOMContentLoaded", function() {
     setupFavorites();
     initializeStatistics();
     checkLoginStatus();
+    setupAuthForms(); // Add this line for authentication forms
 
     // Only run search on pages that have these elements
     if (document.getElementById("serviceList") && !window.location.pathname.includes('browse.html')) {
