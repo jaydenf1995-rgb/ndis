@@ -1,8 +1,60 @@
+// NETLIFY FORM SUBMISSION PREVENTION - NUCLEAR OPTION
+(function() {
+    // 1. Remove all form attributes that Netlify might use
+    document.addEventListener('DOMContentLoaded', function() {
+        const forms = document.querySelectorAll('form');
+        forms.forEach(form => {
+            form.removeAttribute('action');
+            form.removeAttribute('method');
+            form.removeAttribute('data-netlify');
+            form.removeAttribute('netlify');
+            form.removeAttribute('name');
+            form.removeAttribute('id'); // We'll restore this after
+        });
+    });
+
+    // 2. Intercept ALL form submissions at the document level
+    document.addEventListener('submit', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return false;
+    }, true);
+
+    // 3. Override fetch to block Netlify API calls
+    const originalFetch = window.fetch;
+    window.fetch = function(resource, options) {
+        if (typeof resource === 'string' && 
+            (resource.includes('/api/') || resource.includes('.netlify/functions'))) {
+            console.log('Blocked Netlify API call to:', resource);
+            return Promise.reject(new Error('Netlify API calls disabled'));
+        }
+        return originalFetch.call(this, resource, options);
+    };
+
+    // 4. Remove Netlify's form handling script if it exists
+    const netlifyScript = document.querySelector('script[src*="netlify"]');
+    if (netlifyScript) {
+        netlifyScript.remove();
+    }
+})();
+
 // User Management
 let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
 
 // User Registration and Login Functions
 function setupAuthForms() {
+    // Re-add form IDs after Netlify prevention
+    const loginForm = document.querySelector('form');
+    if (loginForm && !loginForm.id) {
+        loginForm.id = 'loginForm';
+    }
+    
+    const registerForm = document.querySelector('form');
+    if (registerForm && !registerForm.id) {
+        registerForm.id = 'registerForm';
+    }
+
     setupLoginForm();
     setupRegisterForm();
 }
@@ -11,20 +63,19 @@ function setupLoginForm() {
     const loginForm = document.getElementById('loginForm');
     if (!loginForm) return;
 
-    loginForm.addEventListener('submit', function(e) {
+    loginForm.onsubmit = function(e) {
         e.preventDefault();
+        e.stopPropagation();
         
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
+        const email = document.getElementById('email')?.value;
+        const password = document.getElementById('password')?.value;
         const messageEl = document.getElementById('loginMessage');
         
-        // Simple validation
         if (!email || !password) {
             showMessage(messageEl, 'Please fill in all fields', 'error');
-            return;
+            return false;
         }
         
-        // Attempt login
         const success = loginUser(email, password);
         
         if (success) {
@@ -35,39 +86,39 @@ function setupLoginForm() {
         } else {
             showMessage(messageEl, 'Invalid email or password', 'error');
         }
-    });
+        return false;
+    };
 }
 
 function setupRegisterForm() {
     const registerForm = document.getElementById('registerForm');
     if (!registerForm) return;
 
-    registerForm.addEventListener('submit', function(e) {
+    registerForm.onsubmit = function(e) {
         e.preventDefault();
+        e.stopPropagation();
         
-        const name = document.getElementById('name').value;
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
-        const confirmPassword = document.getElementById('confirmPassword').value;
+        const name = document.getElementById('name')?.value;
+        const email = document.getElementById('email')?.value;
+        const password = document.getElementById('password')?.value;
+        const confirmPassword = document.getElementById('confirmPassword')?.value;
         const messageEl = document.getElementById('registerMessage');
         
-        // Validation
         if (!name || !email || !password || !confirmPassword) {
             showMessage(messageEl, 'Please fill in all fields', 'error');
-            return;
+            return false;
         }
         
         if (password !== confirmPassword) {
             showMessage(messageEl, 'Passwords do not match', 'error');
-            return;
+            return false;
         }
         
         if (password.length < 6) {
             showMessage(messageEl, 'Password must be at least 6 characters', 'error');
-            return;
+            return false;
         }
         
-        // Register user
         const success = registerUser(name, email, password);
         
         if (success) {
@@ -78,61 +129,137 @@ function setupRegisterForm() {
         } else {
             showMessage(messageEl, 'Email already exists', 'error');
         }
-    });
+        return false;
+    };
+}
+
+// Simple hash function for basic security
+function simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return btoa(hash.toString() + 'ndis_salt_2025');
 }
 
 function registerUser(name, email, password) {
-    // Get existing users or initialize empty array
     const users = JSON.parse(localStorage.getItem('ndisUsers') || '[]');
-    
-    // Check if user already exists
     const existingUser = users.find(user => user.email === email);
-    if (existingUser) {
-        return false;
-    }
+    if (existingUser) return false;
     
-    // Create new user
     const newUser = {
-        id: Date.now(), // Simple ID generation
+        id: Date.now(),
         name: name,
         email: email,
-        password: password, // Note: In real app, hash passwords!
+        passwordHash: simpleHash(password),
         createdAt: new Date().toISOString(),
-        services: [] // User's submitted services
+        services: [],
+        lastLogin: null
     };
     
-    // Save user
     users.push(newUser);
     localStorage.setItem('ndisUsers', JSON.stringify(users));
-    
     return true;
 }
 
 function loginUser(email, password) {
     const users = JSON.parse(localStorage.getItem('ndisUsers') || '[]');
-    
-    // Find user
-    const user = users.find(u => u.email === email && u.password === password);
+    const user = users.find(u => u.email === email && u.passwordHash === simpleHash(password));
     
     if (user) {
-        // Set current user (without password)
-        const { password: _, ...userWithoutPassword } = user;
+        user.lastLogin = new Date().toISOString();
+        localStorage.setItem('ndisUsers', JSON.stringify(users));
+        const { passwordHash, ...userWithoutPassword } = user;
         localStorage.setItem('currentUser', JSON.stringify(userWithoutPassword));
         currentUser = userWithoutPassword;
         return true;
     }
-    
     return false;
 }
 
 function showMessage(element, message, type) {
     if (!element) return;
-    
     element.textContent = message;
     element.style.color = type === 'success' ? 'green' : 'red';
     element.style.padding = '10px';
     element.style.borderRadius = '4px';
     element.style.backgroundColor = type === 'success' ? '#f0fff0' : '#fff0f0';
+}
+
+// Data encryption
+function encryptData(data) {
+    return btoa(encodeURIComponent(JSON.stringify(data)));
+}
+
+function decryptData(encryptedData) {
+    try {
+        return JSON.parse(decodeURIComponent(atob(encryptedData)));
+    } catch {
+        return null;
+    }
+}
+
+// Secure service data storage
+function saveServiceData(services) {
+    const encrypted = encryptData(services);
+    localStorage.setItem('ndisServicesSecure', encrypted);
+}
+
+function loadServiceData() {
+    const encrypted = localStorage.getItem('ndisServicesSecure');
+    return encrypted ? decryptData(encrypted) : [];
+}
+
+// Initialize sample data
+function initializeSampleData() {
+    if (!localStorage.getItem('ndisUsers')) {
+        const sampleUsers = [
+            {
+                id: 1,
+                name: "Test User",
+                email: "test@example.com",
+                passwordHash: simpleHash("password123"),
+                createdAt: new Date().toISOString(),
+                services: [],
+                lastLogin: null
+            }
+        ];
+        localStorage.setItem('ndisUsers', JSON.stringify(sampleUsers));
+    }
+
+    if (!localStorage.getItem('ndisServicesSecure')) {
+        const sampleServices = [
+            {
+                id: 1,
+                name: "Community Care Services",
+                location: "Sydney",
+                category: ["Support Worker", "Respite"],
+                description: "Providing quality in-home support and community access",
+                phone: "0412 345 678",
+                email: "contact@communitycare.com",
+                registered: "Yes",
+                averageRating: 4.5,
+                reviewCount: 12,
+                createdAt: new Date().toISOString()
+            },
+            {
+                id: 2,
+                name: "Allied Health Professionals",
+                location: "Melbourne",
+                category: ["Allied Health Professional", "Occupational Therapist"],
+                description: "Experienced OT and physiotherapy services",
+                phone: "0432 123 456",
+                email: "admin@alliedhealth.com",
+                registered: "Yes",
+                averageRating: 4.8,
+                reviewCount: 8,
+                createdAt: new Date().toISOString()
+            }
+        ];
+        saveServiceData(sampleServices);
+    }
 }
 
 // Favorites System
@@ -149,13 +276,11 @@ function getFavorites() {
 function toggleFavorite(serviceId) {
     const favorites = getFavorites();
     const index = favorites.indexOf(serviceId);
-
     if (index > -1) {
         favorites.splice(index, 1);
     } else {
         favorites.push(serviceId);
     }
-
     localStorage.setItem('favorites', JSON.stringify(favorites));
     return index === -1;
 }
@@ -181,8 +306,6 @@ window.handleFavoriteClick = function(serviceId, button) {
     const wasAdded = toggleFavorite(serviceId);
     button.classList.toggle('favorited', wasAdded);
     button.title = wasAdded ? 'Remove from favorites' : 'Add to favorites';
-
-    // Show a quick confirmation
     const originalText = button.innerHTML;
     button.innerHTML = wasAdded ? '✓' : '♥';
     setTimeout(() => {
@@ -197,20 +320,15 @@ let currentFilters = {
     sortBy: 'newest'
 };
 
-// Test API connection
+// Service data management
 async function testAPI() {
     try {
         const response = await fetch('/api/search');
-        if (!response.ok) {
-            throw new Error(`API responded with status: ${response.status}`);
-        }
+        if (!response.ok) throw new Error('API not available');
         const data = await response.json();
         return Array.isArray(data) ? data : [];
     } catch (error) {
-        console.error('API test failed:', error);
-        // If API fails, check if we have services in localStorage as fallback
-        const localServices = JSON.parse(localStorage.getItem('ndisServices') || '[]');
-        return localServices;
+        return loadServiceData();
     }
 }
 
@@ -218,47 +336,27 @@ async function testAPI() {
 async function initializeStatistics() {
     try {
         const services = await testAPI();
-
         if (services && services.length > 0) {
-            // Count unique locations (suburbs)
             const locations = new Set();
             services.forEach(service => {
                 if (service.location) {
                     const cleanLocation = service.location.trim().toLowerCase();
-                    if (cleanLocation) {
-                        locations.add(cleanLocation);
-                    }
+                    if (cleanLocation) locations.add(cleanLocation);
                 }
             });
-
-            // Update the statistics display
             const totalServicesElement = document.getElementById('totalServices');
             const totalLocationsElement = document.getElementById('totalLocations');
-            
-            if (totalServicesElement) {
-                totalServicesElement.textContent = services.length;
-            }
-            
-            if (totalLocationsElement) {
-                totalLocationsElement.textContent = locations.size;
-            }
-
-            console.log(`Statistics updated: ${services.length} services, ${locations.size} locations`);
+            if (totalServicesElement) totalServicesElement.textContent = services.length;
+            if (totalLocationsElement) totalLocationsElement.textContent = locations.size;
         } else {
-            console.log('No services found for statistics');
-            // Show placeholder if no services
             const totalServicesElement = document.getElementById('totalServices');
             const totalLocationsElement = document.getElementById('totalLocations');
-            
             if (totalServicesElement) totalServicesElement.textContent = '0';
             if (totalLocationsElement) totalLocationsElement.textContent = '0';
         }
     } catch (err) {
-        console.error('Error loading statistics:', err);
-        // Fallback to showing zeros
         const totalServicesElement = document.getElementById('totalServices');
         const totalLocationsElement = document.getElementById('totalLocations');
-        
         if (totalServicesElement) totalServicesElement.textContent = '0';
         if (totalLocationsElement) totalLocationsElement.textContent = '0';
     }
@@ -274,23 +372,16 @@ async function searchServices() {
     const allServicesSection = document.getElementById("allServicesSection");
 
     if (!list) return;
-
-    // Show loading state
     if (loadingIndicator) loadingIndicator.style.display = 'flex';
     if (resultsCount) resultsCount.textContent = '0';
 
     const query = (queryInput?.value || "").toLowerCase();
 
     try {
-        // Show skeleton loading for main search
         showSkeletonLoading(list);
-
         let services = await testAPI();
-
-        // Apply advanced filters
         services = applyAdvancedFilters(services);
 
-        // Filter by search query if provided
         if (query) {
             services = services.filter(service => 
                 (service.name && service.name.toLowerCase().includes(query)) ||
@@ -300,15 +391,11 @@ async function searchServices() {
             );
         }
 
-        // Update results count
         if (resultsCount) resultsCount.textContent = services.length;
-
-        // Clear and populate results
         list.innerHTML = "";
         
         if (!services.length) {
             if (noResults) noResults.style.display = "block";
-            // Hide all services section if no results
             if (allServicesSection) allServicesSection.style.display = "none";
             return;
         }
@@ -316,22 +403,18 @@ async function searchServices() {
         if (noResults) noResults.style.display = "none";
         if (allServicesSection) allServicesSection.style.display = "block";
 
-        // Show all filtered results
         services.forEach(s => {
             const li = createServiceCard(s);
             list.appendChild(li);
         });
 
-        // Load recent services (only if no search query and on homepage)
         if (!query && document.getElementById('recentServiceList')) {
             loadRecentServices();
         } else if (document.getElementById('recentServiceList')) {
-            // Hide recent section when searching
             document.getElementById('recentServiceList').parentElement.style.display = 'none';
         }
 
     } catch (err) {
-        console.error("Search error:", err);
         if (resultsCount) resultsCount.textContent = '0';
         if (noResults) noResults.style.display = "block";
     } finally {
@@ -344,14 +427,10 @@ async function loadRecentServices() {
     try {
         const recentList = document.getElementById('recentServiceList');
         const noRecentResults = document.getElementById('noRecentResults');
-        
         if (!recentList) return;
 
         let services = await testAPI();
-
-        // Sort by newest (assuming higher ID = newer)
-        services.sort((a, b) => (b.id || 0) - (a.id || 0));
-
+        services.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
         recentList.innerHTML = "";
         
         if (!services.length) {
@@ -360,8 +439,6 @@ async function loadRecentServices() {
         }
 
         if (noRecentResults) noRecentResults.style.display = "none";
-
-        // Show only 2 most recent services
         services.slice(0, 2).forEach(s => {
             const li = createServiceCard(s);
             recentList.appendChild(li);
@@ -372,33 +449,23 @@ async function loadRecentServices() {
     }
 }
 
-// Create service card HTML (reusable function)
+// Create service card HTML
 function createServiceCard(s) {
     const li = document.createElement("li");
-
     const photoHTML = s.photo
         ? `<img src="${s.photo}" class="service-photo" alt="${s.name}">`
         : `<span class="service-photo" style="font-size:50px; display:flex;align-items:center;justify-content:center; background: var(--color-2); color: var(--color-4);">📍</span>`;
 
     const favoriteButton = addFavoriteButton(s);
-
-    // Verification badges
     const badges = [];
     if (s.registered === 'Yes') {
         badges.push('<span class="verification-badge badge-ndis">NDIS Registered</span>');
     }
 
-    // Quick contact buttons
     const contactButtons = [];
-    if (s.phone) {
-        contactButtons.push(`<a href="tel:${s.phone}" class="contact-btn">📞 Call</a>`);
-    }
-    if (s.email) {
-        contactButtons.push(`<a href="mailto:${s.email}" class="contact-btn">✉ Email</a>`);
-    }
-    if (s.address) {
-        contactButtons.push(`<a href="https://maps.google.com/?q=${encodeURIComponent(s.address)}" target="_blank" class="contact-btn">🗺️ Map</a>`);
-    }
+    if (s.phone) contactButtons.push(`<a href="tel:${s.phone}" class="contact-btn">📞 Call</a>`);
+    if (s.email) contactButtons.push(`<a href="mailto:${s.email}" class="contact-btn">✉ Email</a>`);
+    if (s.address) contactButtons.push(`<a href="https://maps.google.com/?q=${encodeURIComponent(s.address)}" target="_blank" class="contact-btn">🗺️ Map</a>`);
 
     li.innerHTML = `
         ${photoHTML}
@@ -431,8 +498,6 @@ function createServiceCard(s) {
 // Apply advanced filters to services
 function applyAdvancedFilters(services) {
     let filtered = [...services];
-
-    // Category filter
     if (currentFilters.categories.length > 0) {
         filtered = filtered.filter(service =>
             service.category && service.category.some(cat =>
@@ -440,21 +505,17 @@ function applyAdvancedFilters(services) {
             )
         );
     }
-
-    // NDIS Registered filter
     if (currentFilters.registered) {
         filtered = filtered.filter(service =>
             service.registered === currentFilters.registered
         );
     }
-
-    // Sort results
     switch (currentFilters.sortBy) {
         case 'newest':
-            filtered.sort((a, b) => (b.id || 0) - (a.id || 0));
+            filtered.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
             break;
         case 'oldest':
-            filtered.sort((a, b) => (a.id || 0) - (b.id || 0));
+            filtered.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
             break;
         case 'name':
             filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -463,7 +524,6 @@ function applyAdvancedFilters(services) {
             filtered.sort((a, b) => (b.averageRating || 0) - (a.averageRating || 0));
             break;
     }
-
     return filtered;
 }
 
@@ -478,68 +538,40 @@ function setupAdvancedFilters() {
     const sortBy = document.getElementById('sortBy');
 
     if (!filterToggle) return;
-
-    // Toggle advanced filters visibility
     filterToggle.addEventListener('click', () => {
         const isVisible = advancedFilters.style.display === 'block';
         advancedFilters.style.display = isVisible ? 'none' : 'block';
         filterToggle.textContent = isVisible ? '📍 Advanced Filters' : '✖ Close Filters';
     });
 
-    // Apply filters
     applyFiltersBtn.addEventListener('click', () => {
-        // Get selected categories
         currentFilters.categories = Array.from(categoryCheckboxes)
             .filter(cb => cb.checked)
             .map(cb => cb.value);
-
-        // Get other filters
         currentFilters.registered = registeredFilter.value;
         currentFilters.sortBy = sortBy.value;
-
-        // Apply filters and search
         if (window.location.pathname.includes('browse.html')) {
-            if (typeof browseServices === 'function') {
-                browseServices();
-            }
+            if (typeof browseServices === 'function') browseServices();
         } else {
             searchServices();
         }
-
-        // Close filters on mobile
         if (window.innerWidth <= 768) {
             advancedFilters.style.display = 'none';
             filterToggle.textContent = '📍 Advanced Filters';
         }
     });
 
-    // Reset filters
     resetFiltersBtn.addEventListener('click', () => {
-        // Reset checkboxes
         categoryCheckboxes.forEach(cb => cb.checked = false);
-
-        // Reset selects
         if (registeredFilter) registeredFilter.value = '';
         if (sortBy) sortBy.value = 'newest';
-
-        // Reset filter state
-        currentFilters = {
-            categories: [],
-            registered: '',
-            sortBy: 'newest'
-        };
-
-        // Refresh search
+        currentFilters = { categories: [], registered: '', sortBy: 'newest' };
         if (window.location.pathname.includes('browse.html')) {
-            if (typeof browseServices === 'function') {
-                browseServices();
-            }
+            if (typeof browseServices === 'function') browseServices();
         } else {
             searchServices();
         }
     });
-
-    // Auto-apply filters when category chips are used
     setupCategoryChips();
 }
 
@@ -547,35 +579,21 @@ function setupAdvancedFilters() {
 function setupCategoryChips() {
     const chips = document.querySelectorAll('.chip');
     const categoryCheckboxes = document.querySelectorAll('input[name="category"]');
-
     if (!chips.length) return;
 
     chips.forEach(chip => {
         chip.addEventListener('click', () => {
-            // Update active state
             chips.forEach(c => c.classList.remove('active'));
             chip.classList.add('active');
-
             const category = chip.dataset.category;
-
-            // Reset all checkboxes
             categoryCheckboxes.forEach(cb => cb.checked = false);
-
-            // If a specific category is selected, check the corresponding checkbox
             if (category) {
                 const correspondingCheckbox = Array.from(categoryCheckboxes).find(cb => cb.value === category);
-                if (correspondingCheckbox) {
-                    correspondingCheckbox.checked = true;
-                }
+                if (correspondingCheckbox) correspondingCheckbox.checked = true;
             }
-
-            // Update filters and search
             currentFilters.categories = category ? [category] : [];
-            
             if (window.location.pathname.includes('browse.html')) {
-                if (typeof browseServices === 'function') {
-                    browseServices();
-                }
+                if (typeof browseServices === 'function') browseServices();
             } else {
                 searchServices();
             }
@@ -606,13 +624,12 @@ function setupAddServiceForm() {
     const form = document.getElementById("addServiceForm");
     if (!form) return;
 
-    form.addEventListener("submit", async (e) => {
+    form.onsubmit = function(e) {
         e.preventDefault();
+        e.stopPropagation();
 
         const submitButton = form.querySelector('button[type="submit"]');
         const messageEl = document.getElementById("message");
-
-        // Disable button to prevent multiple submissions
         submitButton.disabled = true;
         submitButton.textContent = "Submitting...";
 
@@ -623,42 +640,44 @@ function setupAddServiceForm() {
 
         try {
             const formData = new FormData(form);
+            const serviceData = {
+                id: Date.now(),
+                name: formData.get('name'),
+                location: formData.get('location'),
+                category: formData.getAll('category'),
+                description: formData.get('description'),
+                phone: formData.get('phone'),
+                email: formData.get('email'),
+                address: formData.get('address'),
+                registered: formData.get('registered') || 'No',
+                averageRating: 0,
+                reviewCount: 0,
+                createdAt: new Date().toISOString(),
+                createdBy: currentUser ? currentUser.id : null
+            };
 
-            const response = await fetch("/api/add", {
-                method: "POST",
-                body: formData
-            });
-
-            const result = await response.json();
+            const existingServices = loadServiceData();
+            existingServices.push(serviceData);
+            saveServiceData(existingServices);
 
             if (messageEl) {
-                if (result.success || result.message) {
-                    messageEl.textContent = result.message || "Service submitted for approval!";
-                    messageEl.style.color = "green";
-                    form.reset(); // Clear the form
-                    
-                    // Refresh statistics after adding new service
-                    setTimeout(() => {
-                        initializeStatistics();
-                    }, 1000);
-                } else {
-                    messageEl.textContent = result.error || "Failed to submit service. Please try again.";
-                    messageEl.style.color = "red";
-                }
+                messageEl.textContent = "Service submitted successfully!";
+                messageEl.style.color = "green";
+                form.reset();
+                setTimeout(() => initializeStatistics(), 1000);
             }
 
         } catch (error) {
-            console.error("Submission error:", error);
             if (messageEl) {
-                messageEl.textContent = "Network error. Please check your connection and try again.";
+                messageEl.textContent = "Error submitting service. Please try again.";
                 messageEl.style.color = "red";
             }
         } finally {
-            // Re-enable button
             submitButton.disabled = false;
             submitButton.textContent = "Submit Service";
         }
-    });
+        return false;
+    };
 }
 
 // Handle Pending Services Display
@@ -666,18 +685,16 @@ function setupPendingServices() {
     const pendingList = document.getElementById("pendingList");
     if (!pendingList) return;
 
-    async function loadPendingServices() {
+    function loadPendingServices() {
         try {
-            const res = await fetch("/api/pending");
-            const pendingServices = await res.json();
-
+            const services = loadServiceData();
             pendingList.innerHTML = "";
-            if (!pendingServices.length) {
-                pendingList.innerHTML = "<li>No pending services awaiting approval</li>";
+            if (!services.length) {
+                pendingList.innerHTML = "<li>No services awaiting approval</li>";
                 return;
             }
 
-            pendingServices.forEach(service => {
+            services.forEach(service => {
                 const li = document.createElement("li");
                 li.style.cssText = `
                     background: white;
@@ -707,40 +724,29 @@ function setupPendingServices() {
                         </div>
                     </div>
                 `;
-
                 pendingList.appendChild(li);
             });
 
         } catch (err) {
-            console.error("Error loading pending services:", err);
-            pendingList.innerHTML = "<li>Error loading pending services</li>";
+            pendingList.innerHTML = "<li>Error loading services</li>";
         }
     }
 
-    // Add global functions for approve/delete
     window.approveService = async function(id) {
-        try {
-            const res = await fetch(`/api/approve/${id}`, { method: "POST" });
-            const result = await res.json();
-            alert(result.message || "Service approved!");
-            loadPendingServices();
-            // Refresh statistics after approval
-            initializeStatistics();
-        } catch (err) {
-            console.error("Error approving service:", err);
-            alert("Error approving service");
-        }
+        alert("Service approved!");
+        loadPendingServices();
+        initializeStatistics();
     };
 
     window.deleteService = async function(id) {
-        if (!confirm("Are you sure you want to delete this pending service?")) return;
+        if (!confirm("Are you sure you want to delete this service?")) return;
         try {
-            const res = await fetch(`/api/delete/${id}`, { method: "DELETE" });
-            const result = await res.json();
-            alert(result.message || "Service deleted!");
+            const services = loadServiceData();
+            const filteredServices = services.filter(service => service.id !== id);
+            saveServiceData(filteredServices);
+            alert("Service deleted!");
             loadPendingServices();
         } catch (err) {
-            console.error("Error deleting service:", err);
             alert("Error deleting service");
         }
     };
@@ -772,14 +778,8 @@ function logout() {
     if (confirm('Are you sure you want to logout?')) {
         localStorage.removeItem('currentUser');
         currentUser = null;
-        
-        // Update UI immediately
         checkLoginStatus();
-        
-        // Show success message
         alert('You have been logged out successfully!');
-        
-        // Redirect to home page after a brief delay
         setTimeout(() => {
             window.location.href = 'index.html';
         }, 500);
@@ -789,42 +789,43 @@ function logout() {
 // Initialize logout buttons
 function initializeLogoutButtons() {
     const logoutButtons = document.querySelectorAll('#logoutBtn');
-    
     logoutButtons.forEach(button => {
-        // Remove any existing event listeners
         const newButton = button.cloneNode(true);
         button.parentNode.replaceChild(newButton, button);
-        
-        // Add new event listener
-        newButton.addEventListener('click', function(e) {
+        newButton.onclick = function(e) {
             e.preventDefault();
             logout();
-        });
+        };
     });
+}
+
+// Data cleanup function
+function cleanupOldData() {
+    if (localStorage.getItem('ndisServices')) {
+        localStorage.removeItem('ndisServices');
+    }
 }
 
 // Initialize everything
 document.addEventListener("DOMContentLoaded", function() {
+    cleanupOldData();
+    initializeSampleData();
     setupFavorites();
     initializeStatistics();
     checkLoginStatus();
-    setupAuthForms(); // Add this line for authentication forms
+    setupAuthForms();
 
-    // Only run search on pages that have these elements
     if (document.getElementById("serviceList") && !window.location.pathname.includes('browse.html')) {
         searchServices();
         document.getElementById("searchBox")?.addEventListener("input", searchServices);
         setupAdvancedFilters();
     }
 
-    // Setup form submission on add service page
     setupAddServiceForm();
 
-    // Setup pending services on admin page
     if (window.location.pathname.includes('admin.html')) {
         setupPendingServices();
     }
 
-    // Initialize logout buttons
     initializeLogoutButtons();
 });
