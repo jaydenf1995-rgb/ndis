@@ -124,17 +124,15 @@ async function searchServices() {
 
         // Show all filtered results
         services.forEach(s => {
-            const li = createServiceCard(s, false); // Don't show upgrade buttons on main search
+            const li = createServiceCard(s);
             list.appendChild(li);
         });
 
-        // Load premium and recent services (only if no search query and on homepage)
-        if (!query && document.getElementById('premiumServiceList')) {
-            loadPremiumServices();
+        // Load recent services (only if no search query and on homepage)
+        if (!query && document.getElementById('recentServiceList')) {
             loadRecentServices();
-        } else if (document.getElementById('premiumServiceList')) {
-            // Hide premium and recent sections when searching
-            document.getElementById('premiumServiceList').parentElement.style.display = 'none';
+        } else if (document.getElementById('recentServiceList')) {
+            // Hide recent section when searching
             document.getElementById('recentServiceList').parentElement.style.display = 'none';
         }
 
@@ -143,40 +141,6 @@ async function searchServices() {
         if (resultsCount) resultsCount.textContent = '0';
     } finally {
         if (loadingIndicator) loadingIndicator.style.display = 'none';
-    }
-}
-
-// Load premium services for the featured section
-async function loadPremiumServices() {
-    try {
-        const premiumList = document.getElementById('premiumServiceList');
-        const noPremiumResults = document.getElementById('noPremiumResults');
-        
-        if (!premiumList) return;
-
-        let res = await fetch('/api/search');
-        let services = await res.json();
-
-        // Filter premium services
-        const premiumServices = services.filter(service => service.isPremium === true);
-
-        premiumList.innerHTML = "";
-        
-        if (!premiumServices.length) {
-            if (noPremiumResults) noPremiumResults.style.display = "block";
-            return;
-        }
-
-        if (noPremiumResults) noPremiumResults.style.display = "none";
-
-        // Show premium services (limit to 6 for display)
-        premiumServices.slice(0, 6).forEach(s => {
-            const li = createServiceCard(s, false); // No upgrade buttons for premium services
-            premiumList.appendChild(li);
-        });
-
-    } catch (err) {
-        console.error("Error loading premium services:", err);
     }
 }
 
@@ -191,13 +155,12 @@ async function loadRecentServices() {
         let res = await fetch('/api/search');
         let services = await res.json();
 
-        // Filter non-premium services and sort by newest
-        const nonPremiumServices = services.filter(service => !service.isPremium);
-        nonPremiumServices.sort((a, b) => b.id - a.id); // Sort by ID (newest first)
+        // Sort by newest
+        services.sort((a, b) => b.id - a.id);
 
         recentList.innerHTML = "";
         
-        if (!nonPremiumServices.length) {
+        if (!services.length) {
             if (noRecentResults) noRecentResults.style.display = "block";
             return;
         }
@@ -205,8 +168,8 @@ async function loadRecentServices() {
         if (noRecentResults) noRecentResults.style.display = "none";
 
         // Show only 2 most recent services
-        nonPremiumServices.slice(0, 2).forEach(s => {
-            const li = createServiceCard(s, false); // No upgrade buttons in public view
+        services.slice(0, 2).forEach(s => {
+            const li = createServiceCard(s);
             recentList.appendChild(li);
         });
 
@@ -216,7 +179,7 @@ async function loadRecentServices() {
 }
 
 // Create service card HTML (reusable function)
-function createServiceCard(s, showUpgradeButton = false) {
+function createServiceCard(s) {
     const li = document.createElement("li");
 
     const photoHTML = s.photo
@@ -230,9 +193,6 @@ function createServiceCard(s, showUpgradeButton = false) {
     if (s.registered === 'Yes') {
         badges.push('<span class="verification-badge badge-ndis">NDIS Registered</span>');
     }
-    if (s.isFeatured) {
-        badges.push('<span class="premium-badge">⭐ Premium</span>');
-    }
 
     // Quick contact buttons
     const contactButtons = [];
@@ -245,13 +205,6 @@ function createServiceCard(s, showUpgradeButton = false) {
     if (s.address) {
         contactButtons.push(`<a href="https://maps.google.com/?q=${encodeURIComponent(s.address)}" target="_blank" class="contact-btn">🗺️ Map</a>`);
     }
-
-    // Only show upgrade button if explicitly requested and service is not premium
-    // Also check if current user owns this service
-    const userOwnsService = currentUser && currentUser.services && currentUser.services.some(userService => userService.id === s.id);
-    const upgradeButton = (showUpgradeButton && !s.isFeatured && userOwnsService) 
-        ? `<a href="premium.html?id=${s.id}" class="premium-upgrade-link">⭐ Upgrade to Premium</a>`
-        : '';
 
     li.innerHTML = `
         ${photoHTML}
@@ -275,7 +228,6 @@ function createServiceCard(s, showUpgradeButton = false) {
                 </div>
             ` : ''}
             ${contactButtons.length ? `<div class="quick-contact">${contactButtons.join('')}</div>` : ''}
-            ${upgradeButton}
         </div>
     `;
 
